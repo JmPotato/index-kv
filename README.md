@@ -11,11 +11,11 @@
 # Key Points
 
 * 1T disordered data in a single file on disk.
-* Data struct:
-    * key_size   uint64
-    * key        bytes    1B <= size < 1KB
-    * value_size uint64
-    * value      bytes    1B <= size < 1MB
+    * Data struct: (key_size uint64, key bytes, value_size uint64, value bytes)
+    * `key_size   uint64`
+    * `key        bytes`    1B <= size < 1KB
+    * `value_size uint64`
+    * `value      bytes`    1B <= size < 1MB
 * Getting muti values by keys concurrently.
 * Pretreatment wiil be include in the total cost.
 
@@ -24,6 +24,10 @@
 * Bloom filter
 * LRU Cache
 * Hash & Sharding -> Index/Offset
+    * Chunk struct: (key_hash uint64, n uint8, offset []uint64)
+    * `key_hash uint64` The hash value of key
+    * `n        uint8` The number of offset records
+    * `offset   uint64 ...` The n offset records
 
 # Reference
 

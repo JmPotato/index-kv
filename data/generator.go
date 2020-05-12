@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	totalKeyNum = 10
+	totalKeyNum = 1000
 	charset     = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_!@#$%^&*()-"
 )
 
@@ -27,11 +27,11 @@ func GenerateRandomString(length int) (randomString []byte) {
 	return randomString
 }
 
-// GenerateRandomData generates totalKeyNum key-value pairs and writes them into kv-data.pingcap file.
+// GenerateRandomData generates totalKeyNum key-value pairs and writes them into DATA_FILENAME file.
 func GenerateRandomData() (fakeKeyList, fakeValueList []string) {
 	fakeKeyList = make([]string, 0)
 	fakeValueList = make([]string, 0)
-	dataFile, err := os.OpenFile("kv-data.pingcap", os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0644)
+	dataFile, err := os.OpenFile(constdef.DATA_FILENAME, os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0644)
 	if err != nil {
 		log.Fatalf("[GenerateRandomData] Open file error: %v", err)
 	}
@@ -47,7 +47,7 @@ func GenerateRandomData() (fakeKeyList, fakeValueList []string) {
 
 		// fmt.Println(keySize, key, valueSize, value)
 
-		// Combine the data item structure for kv-data.pingcap
+		// Combine the data item structure for DATA_FILENAME
 		keySizeItem := make([]byte, 8)
 		binary.PutUvarint(keySizeItem, uint64(keySize))
 		valueSizeItem := make([]byte, 8)
@@ -58,7 +58,7 @@ func GenerateRandomData() (fakeKeyList, fakeValueList []string) {
 		kvItem = append(kvItem, valueSizeItem...)
 		kvItem = append(kvItem, value...)
 
-		// Write into kv-data.pingcap
+		// Write into DATA_FILENAME
 		if _, err := dataFile.Write(kvItem); err != nil {
 			dataFile.Close()
 			log.Fatalf("[GenerateRandomData] Write file error=%v", err)
@@ -69,6 +69,17 @@ func GenerateRandomData() (fakeKeyList, fakeValueList []string) {
 		log.Fatalf("[GenerateRandomData] Close file error: %v", err)
 	}
 	return fakeKeyList, fakeValueList
+}
+
+// GetCurrentOffset returns the current file position
+func GetCurrentOffset(file *os.File) (offset int64, err error) {
+	offset, err = file.Seek(0, 1)
+	if err != nil {
+		log.Printf("[GetCurrentOffset] Get file offset error=%v", err)
+		return 0, err
+	}
+
+	return offset, nil
 }
 
 // ReadSizeAndContent reads key/value size and corresponding content from file

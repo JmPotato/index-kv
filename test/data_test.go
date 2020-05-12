@@ -5,13 +5,14 @@ import (
 	"os"
 	"testing"
 
+	"github.com/JmPotato/index-kv/constdef"
 	"github.com/JmPotato/index-kv/data"
 )
 
 func TestGenerateData(t *testing.T) {
 	// Generate random test data
 	keyList, valueList := data.GenerateRandomData()
-	dataFile, err := os.Open("kv-data.pingcap")
+	dataFile, err := os.Open(constdef.DATA_FILENAME)
 	errorHandle(err)
 	dataFileStat, err := dataFile.Stat()
 	errorHandle(err)
