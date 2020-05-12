@@ -12,8 +12,7 @@ import (
 )
 
 const (
-	totalKeyNum = 1000
-	charset     = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_!@#$%^&*()-"
+	charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_!@#$%^&*()-"
 )
 
 var seededRand *rand.Rand = rand.New(rand.NewSource(time.Now().UnixNano()))
@@ -27,7 +26,7 @@ func GenerateRandomString(length int) (randomString []byte) {
 	return randomString
 }
 
-// GenerateRandomData generates totalKeyNum key-value pairs and writes them into DATA_FILENAME file.
+// GenerateRandomData generates KV_NUMBER key-value pairs and writes them into DATA_FILENAME file.
 func GenerateRandomData() (fakeKeyList, fakeValueList []string) {
 	fakeKeyList = make([]string, 0)
 	fakeValueList = make([]string, 0)
@@ -36,7 +35,7 @@ func GenerateRandomData() (fakeKeyList, fakeValueList []string) {
 		log.Fatalf("[GenerateRandomData] Open file error: %v", err)
 	}
 
-	for i := 0; i < totalKeyNum; i++ {
+	for i := 0; i < constdef.KV_NUMBER; i++ {
 		// Generate random key & value string
 		keySize := seededRand.Intn(constdef.MAX_KEY_SIZE-constdef.MIN_KEY_SIZE) + constdef.MIN_KEY_SIZE
 		key := GenerateRandomString(keySize)
@@ -44,8 +43,6 @@ func GenerateRandomData() (fakeKeyList, fakeValueList []string) {
 		valueSize := seededRand.Intn(constdef.MAX_VALUE_SIZE-constdef.MIN_VALUE_SIZE) + constdef.MIN_VALUE_SIZE
 		value := GenerateRandomString(valueSize)
 		fakeValueList = append(fakeValueList, string(value))
-
-		// fmt.Println(keySize, key, valueSize, value)
 
 		// Combine the data item structure for DATA_FILENAME
 		keySizeItem := make([]byte, 8)
@@ -102,4 +99,38 @@ func ReadSizeAndContent(file *os.File) (size uint64, content []byte, err error) 
 		return size, content, err
 	}
 	return size, content, nil
+}
+
+// ReadKV reads key-value pair from existed data file.
+func ReadKV(dataFile *os.File) (keyListRead, valueListRead []string) {
+	keyListRead = make([]string, 0)
+	valueListRead = make([]string, 0)
+	dataFileStat, err := dataFile.Stat()
+	if err != nil {
+		log.Fatalf("[ReadKV] Get data file stat error=%v", err)
+		return
+	}
+
+	var (
+		key, value      []byte
+		currentPosition int64
+	)
+	for currentPosition < dataFileStat.Size() {
+		_, key, err = ReadSizeAndContent(dataFile)
+		if err != nil {
+			log.Fatalf("[ReadKV] Read key size and content error=%v", err)
+			return
+		}
+		keyListRead = append(keyListRead, string(key))
+
+		_, value, err = ReadSizeAndContent(dataFile)
+		if err != nil {
+			log.Fatalf("[ReadKV] Read value size and content error=%v", err)
+			return
+		}
+		valueListRead = append(valueListRead, string(value))
+		currentPosition, _ = dataFile.Seek(0, 1)
+	}
+
+	return keyListRead, valueListRead
 }

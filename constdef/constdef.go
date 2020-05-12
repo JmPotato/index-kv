@@ -1,6 +1,7 @@
 package constdef
 
 const (
+	KV_NUMBER      = 1000
 	DATA_FILENAME  = "kv-data.pingcap"
 	MIN_KEY_SIZE   = 1
 	MAX_KEY_SIZE   = 1024

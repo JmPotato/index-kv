@@ -2,7 +2,6 @@ package test
 
 import (
 	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
 	"testing"
@@ -26,11 +25,18 @@ func assertEqual(t *testing.T, a interface{}, b interface{}, message string) {
 	t.Fatal(message)
 }
 
-func clearIndex() {
-	chunkFiles, _ := ioutil.ReadDir(constdef.CHUNK_DIR)
-	for _, chunkFile := range chunkFiles {
-		go func(fileName string) {
-			os.Remove(fileName)
-		}(chunkFile.Name())
+func clearChunks() {
+	os.RemoveAll(constdef.CHUNK_DIR)
+	os.MkdirAll(constdef.CHUNK_DIR, 0777)
+}
+
+func fileExist(fileName string) bool {
+	_, err := os.Stat(fileName)
+	if err != nil {
+		if os.IsExist(err) {
+			return true
+		}
+		return false
 	}
+	return true
 }

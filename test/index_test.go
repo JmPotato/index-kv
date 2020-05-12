@@ -2,11 +2,18 @@ package test
 
 import (
 	"fmt"
+	"os"
+	"sync"
 	"testing"
 
 	"github.com/JmPotato/index-kv/constdef"
 	"github.com/JmPotato/index-kv/data"
 	"github.com/JmPotato/index-kv/index"
+)
+
+var (
+	testIndex          *index.Index = &index.Index{}
+	keyList, valueList []string
 )
 
 func TestHash(t *testing.T) {
@@ -26,13 +33,66 @@ func TestHash(t *testing.T) {
 	}
 }
 
-func TestIndexGet(t *testing.T) {
-	clearIndex()
-	keyList, valueList := data.GenerateRandomData()
-	var testIndex *index.Index = &index.Index{}
+func TestIndexCreate(t *testing.T) {
+	keyList, valueList = data.GenerateRandomData()
 	testIndex.New(constdef.DATA_FILENAME)
+}
+
+func TestIndexSingleGet(t *testing.T) {
+	clearChunks()
+
+	if fileExist(constdef.DATA_FILENAME) {
+		wg := sync.WaitGroup{}
+		wg.Add(1)
+		go func() {
+			testIndex.New(constdef.DATA_FILENAME)
+			wg.Done()
+		}()
+		wg.Add(1)
+		go func() {
+			dataFile, err := os.Open(constdef.DATA_FILENAME)
+			errorHandle(err)
+			keyList, valueList = data.ReadKV(dataFile)
+			wg.Done()
+		}()
+		wg.Wait()
+	} else {
+		keyList, valueList = data.GenerateRandomData()
+		testIndex.New(constdef.DATA_FILENAME)
+	}
+
 	for i, key := range keyList {
 		valueRead := testIndex.Get(key)
 		assertEqual(t, valueList[i], valueRead, fmt.Sprintf("Mismatch for keyList[%d]", i))
+	}
+}
+
+func TestIndexMutiGet(t *testing.T) {
+	clearChunks()
+
+	if fileExist(constdef.DATA_FILENAME) {
+		wg := sync.WaitGroup{}
+		wg.Add(1)
+		go func() {
+			testIndex.New(constdef.DATA_FILENAME)
+			wg.Done()
+		}()
+		wg.Add(1)
+		go func() {
+			dataFile, err := os.Open(constdef.DATA_FILENAME)
+			errorHandle(err)
+			keyList, valueList = data.ReadKV(dataFile)
+			wg.Done()
+		}()
+		wg.Wait()
+	} else {
+		keyList, valueList = data.GenerateRandomData()
+		testIndex.New(constdef.DATA_FILENAME)
+	}
+
+	valueListRead := testIndex.MGet(&keyList)
+	for idx, valueRead := range *valueListRead {
+		chunkID := testIndex.Hash([]byte(keyList[idx])) % constdef.CHUNK_SIZE
+		assertEqual(t, valueList[idx], valueRead, fmt.Sprintf("Mismatch for keyList[%d], chunkID=%d", idx, chunkID))
 	}
 }

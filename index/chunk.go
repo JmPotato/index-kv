@@ -13,17 +13,13 @@ import (
 
 // Chunk is the sharding unit of the index on disk
 type Chunk struct {
-	ID            uint16 // The identifier of a chunk
+	ID            uint32 // The identifier of a chunk
 	chunkFile     *os.File
 	chunkFileStat os.FileInfo
 }
 
-func (chunk *Chunk) New(chunkID uint16) (err error) {
-	chunk.chunkFile, err = os.OpenFile(constdef.CHUNK_DIR+strconv.FormatUint(uint64(chunkID), 10), os.O_APPEND|os.O_CREATE|os.O_RDWR, 0644)
-	if err != nil {
-		log.Fatalf("[Chunk.New] Open/Create chunk file error=%v, id=%d", err, chunkID)
-		return err
-	}
+func (chunk *Chunk) New(chunkID uint32) (err error) {
+	chunk.Open(chunkID)
 	chunk.chunkFileStat, err = chunk.chunkFile.Stat()
 	if err != nil {
 		log.Fatalf("[Chunk.New] Get chunk file stat error=%v, id=%d", err, chunkID)
@@ -31,6 +27,20 @@ func (chunk *Chunk) New(chunkID uint16) (err error) {
 	}
 	chunk.ID = chunkID
 	return nil
+}
+
+func (chunk *Chunk) Open(chunkID uint32) (err error) {
+	// To-do: Read & Write Isolation
+	chunk.chunkFile, err = os.OpenFile(constdef.CHUNK_DIR+strconv.FormatUint(uint64(chunkID), 10), os.O_CREATE|os.O_RDWR, 0644)
+	if err != nil {
+		log.Fatalf("[Chunk.New] Open/Create chunk file error=%v, id=%d", err, chunkID)
+		return err
+	}
+	return nil
+}
+
+func (chunk *Chunk) Close() (err error) {
+	return chunk.chunkFile.Close()
 }
 
 func (chunk *Chunk) CreatNewIndexRecord(keyHash uint32, offset uint64) {
@@ -70,7 +80,7 @@ func (chunk *Chunk) Append(keyHash uint32, offset uint64) (err error) {
 		keyHashItem := make([]byte, 8)
 		_, err := chunk.chunkFile.Read(keyHashItem)
 		if err != nil {
-			log.Fatalf("[Chunk.Append] Read keyHashItem error=%v", err)
+			log.Fatalf("[Chunk.Append] Read keyHashItem error=%v, chunkID=%d", err, chunk.ID)
 			return err
 		}
 		keyHashRead, _ := binary.ReadUvarint(bytes.NewBuffer(keyHashItem))
@@ -78,12 +88,12 @@ func (chunk *Chunk) Append(keyHash uint32, offset uint64) (err error) {
 			nItem := make([]byte, 1)
 			_, err := chunk.chunkFile.Read(nItem)
 			if err != nil {
-				log.Fatalf("[Chunk.Append] Read nItem error=%v", err)
+				log.Fatalf("[Chunk.Append] Read nItem error=%v, chunkID=%d", err, chunk.ID)
 				return err
 			}
 			nRead, _ := binary.ReadUvarint(bytes.NewBuffer(nItem))
 			binary.PutUvarint(nItem, nRead+1)
-			chunk.chunkFile.Seek(-1, 1)
+			currentPosition, _ = chunk.chunkFile.Seek(-1, 1)
 			if _, err := chunk.chunkFile.Write(nItem); err != nil {
 				chunk.chunkFile.Close()
 				log.Fatalf("[Chunk.Append] Write chunk file nItem error=%v, id=%d", err, chunk.ID)
@@ -101,7 +111,7 @@ func (chunk *Chunk) Append(keyHash uint32, offset uint64) (err error) {
 		nItem := make([]byte, 1)
 		_, err = chunk.chunkFile.Read(nItem)
 		if err != nil {
-			log.Fatalf("[Chunk.Append] Read nItem error=%v", err)
+			log.Fatalf("[Chunk.Append] Read nItem error=%v, chunkID=%d", err, chunk.ID)
 			return err
 		}
 		nRead, _ := binary.ReadUvarint(bytes.NewBuffer(nItem))
@@ -113,6 +123,9 @@ func (chunk *Chunk) Append(keyHash uint32, offset uint64) (err error) {
 
 func (chunk *Chunk) Get(keyHash uint32) (offsets []uint64, err error) {
 	offsets = make([]uint64, 0)
+	// Make sure we have the latest file stat info
+	chunk.chunkFile.Sync()
+	chunk.chunkFileStat, _ = chunk.chunkFile.Stat()
 	chunk.chunkFile.Seek(0, 0)
 	currentPosition, err := data.GetCurrentOffset(chunk.chunkFile)
 	if err != nil {
