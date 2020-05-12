@@ -15,3 +15,6 @@
 # vendor/
 
 .DS_Store
+
+test/kv-data.pingcap
+test/chunks
