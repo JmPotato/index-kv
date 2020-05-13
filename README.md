@@ -21,7 +21,7 @@
 
 # Solution
 
-* `Bloom Filter` checks whether key exists
+* ~~`Bloom Filter` checks whether key exists~~
 * `LRU Cache` speeds up the querying
 * `Hash & Sharding` -> Index/Offset
     * Chunk struct: (key_hash uint64, offset uint64)
