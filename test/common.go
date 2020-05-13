@@ -2,6 +2,7 @@ package test
 
 import (
 	"fmt"
+	"io/ioutil"
 	"log"
 	"os"
 	"testing"
@@ -38,5 +39,14 @@ func fileExist(fileName string) bool {
 		}
 		return false
 	}
+	return true
+}
+
+func chunkExist() bool {
+	dir, err := ioutil.ReadDir(constdef.CHUNK_DIR)
+	if err != nil || len(dir) == 0 {
+		return false
+	}
+
 	return true
 }

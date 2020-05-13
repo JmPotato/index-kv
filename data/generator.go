@@ -101,13 +101,14 @@ func ReadSizeAndContent(file *os.File) (size uint64, content []byte, err error) 
 	return size, content, nil
 }
 
-// ReadKV reads key-value pair from existed data file.
-func ReadKV(dataFile *os.File) (keyListRead, valueListRead []string) {
+// ReadAllKV reads key-value pair from existed data file.
+func ReadAllKV(dataFile *os.File) (keyListRead, valueListRead []string) {
 	keyListRead = make([]string, 0)
 	valueListRead = make([]string, 0)
+	dataFile.Sync()
 	dataFileStat, err := dataFile.Stat()
 	if err != nil {
-		log.Fatalf("[ReadKV] Get data file stat error=%v", err)
+		log.Fatalf("[ReadAllKV] Get data file stat error=%v", err)
 		return
 	}
 
@@ -118,17 +119,59 @@ func ReadKV(dataFile *os.File) (keyListRead, valueListRead []string) {
 	for currentPosition < dataFileStat.Size() {
 		_, key, err = ReadSizeAndContent(dataFile)
 		if err != nil {
-			log.Fatalf("[ReadKV] Read key size and content error=%v", err)
+			log.Fatalf("[ReadAllKV] Read key size and content error=%v", err)
 			return
 		}
 		keyListRead = append(keyListRead, string(key))
 
 		_, value, err = ReadSizeAndContent(dataFile)
 		if err != nil {
-			log.Fatalf("[ReadKV] Read value size and content error=%v", err)
+			log.Fatalf("[ReadAllKV] Read value size and content error=%v", err)
 			return
 		}
 		valueListRead = append(valueListRead, string(value))
+		currentPosition, _ = dataFile.Seek(0, 1)
+	}
+
+	return keyListRead, valueListRead
+}
+
+func ReadRandomKV(dataFile *os.File, kvNumber int) (keyListRead, valueListRead []string) {
+	keyListRead = make([]string, 0)
+	valueListRead = make([]string, 0)
+	dataFile.Sync()
+	dataFileStat, err := dataFile.Stat()
+	if err != nil {
+		log.Fatalf("[ReadAllKV] Get data file stat error=%v", err)
+		return
+	}
+
+	var (
+		key, value      []byte
+		currentPosition int64
+	)
+	for currentPosition < dataFileStat.Size() {
+		if len(keyListRead) >= kvNumber {
+			break
+		}
+		randomChoice := seededRand.Intn(100) % 2
+		_, key, err = ReadSizeAndContent(dataFile)
+		if err != nil {
+			log.Fatalf("[ReadAllKV] Read key size and content error=%v", err)
+			return
+		}
+		if randomChoice == 0 {
+			keyListRead = append(keyListRead, string(key))
+		}
+
+		_, value, err = ReadSizeAndContent(dataFile)
+		if err != nil {
+			log.Fatalf("[ReadAllKV] Read value size and content error=%v", err)
+			return
+		}
+		if randomChoice == 0 {
+			valueListRead = append(valueListRead, string(value))
+		}
 		currentPosition, _ = dataFile.Seek(0, 1)
 	}
 

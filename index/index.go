@@ -1,25 +1,42 @@
 package index
 
 import (
+	"io/ioutil"
 	"log"
 	"os"
 	"sync"
 
+	"github.com/JmPotato/index-kv/cache"
 	"github.com/JmPotato/index-kv/constdef"
 	"github.com/JmPotato/index-kv/data"
 )
 
 // Index is the core index model
 type Index struct {
+	wg         sync.WaitGroup
+	indexMutex sync.Mutex
+
+	// KV original datafile info
 	dataFile     *os.File
 	dataFileStat os.FileInfo
-	chunkList    map[uint32]*Chunk
-	chunkMutex   map[uint32]*sync.Mutex
-	indexMutex   sync.Mutex
-	wg           sync.WaitGroup
+
+	// KV index chunk info
+	chunkList  map[uint32]*Chunk
+	chunkMutex map[uint32]*sync.Mutex
+
+	// KV Cache info
+	kvCache *cache.KVCache
 }
 
 func (index *Index) New(fileName string) (err error) {
+	index.kvCache, err = cache.New(constdef.CACHE_SIZE)
+
+	dir, err := ioutil.ReadDir(constdef.CHUNK_DIR)
+	if err == nil && len(dir) != 0 {
+		return nil
+	}
+
+	log.Printf("Chunk file not found. Create index first...\n")
 	index.dataFile, err = os.OpenFile(constdef.DATA_FILENAME, os.O_RDONLY|os.O_CREATE, 0644)
 	if err != nil {
 		log.Fatalf("[Index.New] Open data file error=%v", err)
@@ -37,7 +54,8 @@ func (index *Index) New(fileName string) (err error) {
 	// Start to create index
 	currentOffset, _ := data.GetCurrentOffset(index.dataFile)
 	var (
-		key, value []byte
+		key, value  []byte
+		routinePool = make(chan struct{}, constdef.MAX_ROUTINE_LIMIT)
 	)
 	for currentOffset < index.dataFileStat.Size() {
 		offset := currentOffset
@@ -52,11 +70,15 @@ func (index *Index) New(fileName string) (err error) {
 			return err
 		}
 		keyHash := index.Hash([]byte(key))
-		chunkID := keyHash % constdef.CHUNK_SIZE
+		chunkID := keyHash % constdef.CHUNK_NUM
 		// Concurrently write index chunk
+		routinePool <- struct{}{}
 		go func(cID uint32) {
-			defer index.wg.Done()
 			index.wg.Add(1)
+			defer func() {
+				<-routinePool
+				index.wg.Done()
+			}()
 			index.indexMutex.Lock()
 			cMutex, exist := index.chunkMutex[cID]
 			if !exist {
@@ -65,27 +87,30 @@ func (index *Index) New(fileName string) (err error) {
 			}
 			index.indexMutex.Unlock()
 			cMutex.Lock()
+			index.indexMutex.Lock()
 			chunkHandle, exist := index.chunkList[cID]
 			if !exist {
 				chunkHandle = &Chunk{}
 				index.chunkList[cID] = chunkHandle
 			}
+			index.indexMutex.Unlock()
 			if err := chunkHandle.New(cID); err != nil {
 				log.Fatalf("[Index.New] Init chunk id=%d error=%v, key=%s, value=%s", chunkID, err, key, value)
 				return
 			}
-			if err := chunkHandle.Append(keyHash, uint64(offset)); err != nil {
-				log.Fatalf("[Index.New] Append chunk id=%d error=%v, keyHash=%d, offset=%d", chunkID, err, keyHash, offset)
-				return
-			}
+			chunkHandle.Append(keyHash, uint64(offset))
 			chunkHandle.Close()
-			log.Printf("[Index.New] Created index for keyHash=%d", keyHash)
+			// log.Printf("[Index.New] Created index for keyHash=%d", keyHash)
 			cMutex.Unlock()
 		}(chunkID)
 
 		currentOffset, _ = data.GetCurrentOffset(index.dataFile)
 	}
 	index.wg.Wait()
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -100,6 +125,11 @@ func (index *Index) Hash(key []byte) (hash uint32) {
 
 // Get is single-thread
 func (index *Index) Get(key string) (value string) {
+	valueCache, exist := index.kvCache.Get(key)
+	if exist {
+		return valueCache
+	}
+
 	var (
 		chunk   *Chunk = &Chunk{}
 		offsets []uint64
@@ -107,7 +137,7 @@ func (index *Index) Get(key string) (value string) {
 		chunkID uint32
 	)
 	keyHash = index.Hash([]byte(key))
-	chunkID = keyHash % constdef.CHUNK_SIZE
+	chunkID = keyHash % constdef.CHUNK_NUM
 	chunk.New(chunkID)
 	offsets, err := chunk.Get(keyHash)
 	if err != nil {
@@ -116,14 +146,15 @@ func (index *Index) Get(key string) (value string) {
 	}
 
 	// Locate the offset in data on disk
+	dataFile, _ := os.OpenFile(constdef.DATA_FILENAME, os.O_RDONLY|os.O_CREATE, 0644)
 	for _, offset := range offsets {
-		index.dataFile.Seek(int64(offset), 0)
-		keySize, keyRead, _ := data.ReadSizeAndContent(index.dataFile)
+		dataFile.Seek(int64(offset), 0)
+		keySize, keyRead, _ := data.ReadSizeAndContent(dataFile)
 		if keySize < constdef.MIN_KEY_SIZE || keySize > constdef.MAX_KEY_SIZE {
 			log.Fatalf("[Index.Get] Invalid key size=%d", keySize)
 			return ""
 		}
-		valueSize, valueRead, _ := data.ReadSizeAndContent(index.dataFile)
+		valueSize, valueRead, _ := data.ReadSizeAndContent(dataFile)
 		if valueSize < constdef.MIN_VALUE_SIZE || valueSize > constdef.MAX_VALUE_SIZE {
 			log.Fatalf("[Index.Get] Invalid key size=%d", valueSize)
 			return ""
@@ -131,6 +162,7 @@ func (index *Index) Get(key string) (value string) {
 
 		if key == string(keyRead) {
 			value = string(valueRead)
+			index.kvCache.Add(key, value)
 			return value
 		}
 	}
@@ -141,10 +173,15 @@ func (index *Index) Get(key string) (value string) {
 // MGet concurrently get key through index
 func (index *Index) MGet(keys *[]string) *[]string {
 	values := make([]string, len(*keys))
+	routinePool := make(chan struct{}, constdef.MAX_ROUTINE_LIMIT)
 	for i, key := range *keys {
-		index.wg.Add(1)
+		routinePool <- struct{}{}
 		go func(idx int, k string) {
-			defer index.wg.Done()
+			index.wg.Add(1)
+			defer func() {
+				<-routinePool
+				index.wg.Done()
+			}()
 			var (
 				keyHash     uint32
 				chunkID     uint32
@@ -152,11 +189,12 @@ func (index *Index) MGet(keys *[]string) *[]string {
 				chunkHandle *Chunk = &Chunk{}
 			)
 			keyHash = index.Hash([]byte(k))
-			chunkID = keyHash % constdef.CHUNK_SIZE
+			chunkID = keyHash % constdef.CHUNK_NUM
 			chunkHandle.New(chunkID)
 			offsets, err := chunkHandle.Get(keyHash)
 			if err != nil {
 				log.Fatalf("[Index.Get] Offset not found for key=%s", k)
+				<-routinePool
 				return
 			}
 
@@ -167,19 +205,21 @@ func (index *Index) MGet(keys *[]string) *[]string {
 				keySize, keyRead, _ := data.ReadSizeAndContent(dataFile)
 				if keySize < constdef.MIN_KEY_SIZE || keySize > constdef.MAX_KEY_SIZE {
 					log.Fatalf("[Index.Get] Invalid key size=%d", keySize)
+					dataFile.Close()
 					return
 				}
 				valueSize, valueRead, _ := data.ReadSizeAndContent(dataFile)
 				if valueSize < constdef.MIN_VALUE_SIZE || valueSize > constdef.MAX_VALUE_SIZE {
 					log.Fatalf("[Index.Get] Invalid key size=%d", valueSize)
+					dataFile.Close()
 					return
 				}
 				if k == string(keyRead) {
 					values[idx] = string(valueRead)
+					dataFile.Close()
 					return
 				}
 			}
-			dataFile.Close()
 		}(i, key)
 	}
 	index.wg.Wait()

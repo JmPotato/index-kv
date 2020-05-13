@@ -7,16 +7,14 @@ import (
 )
 
 func TestChunkAppend(t *testing.T) {
-	clearChunks()
-
 	chunk := index.Chunk{}
-	chunk.New(1)
+	chunk.New(1111111111)
 	chunk.Append(12432434, 233)
 	chunk.Append(12432434, 234)
 	chunk.Append(22432434, 235)
 	chunk.Append(32432434, 236)
 
-	offsets, _ := chunk.Get(12432434)
+	offsets, _ := chunk.Get(112)
 	testOffsets := []uint64{233, 234}
 	for idx, value := range offsets {
 		assertEqual(t, value, testOffsets[idx], "")
